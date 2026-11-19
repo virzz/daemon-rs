@@ -1,20 +1,18 @@
 # Daemon
 
-- [x] SystemD
+`daemon` provides a clap-compatible daemon command backed by systemd over
+D-Bus on Linux and by `launchctl` on macOS.
 
-`daemon` provides a clap-compatible daemon command backed directly by the
-systemd D-Bus API. Configuration-file loading is intentionally outside this
-crate.
+| Scope        | Linux                                                                           | macOS                                   |
+| ------------ | ------------------------------------------------------------------------------- | --------------------------------------- |
+| Current user | `systemd --user`, `~/.config/systemd/user` (or `$XDG_CONFIG_HOME/systemd/user`) | GUI session, `~/Library/LaunchAgents`   |
+| Root         | System manager, `/etc/systemd/system`                                           | System domain, `/Library/LaunchDaemons` |
 
-## Features
-
-- `install`, `uninstall`/`remove`, `start`, `stop`, `restart`, and `status`
-- `install -- [args...]` forwards arguments to `ExecStart`
-- Structured `SystemdUnit` models `[Unit]`, `[Service]`, and `[Install]`
-- Root users use the system systemd manager
-- Non-root users use `systemd --user` and install to
-  `~/.config/systemd/user`
-- Detailed state transitions and error context are printed for every action
+`install -- [args...]` forwards arguments to the service executable. Install
+writes the service definition. It also enables the systemd unit for future
+boot or login. On macOS the LaunchAgent loads at login and the LaunchDaemon
+at boot. Run `start` to start the service immediately, or `restart` to apply
+an updated definition to a running service.
 
 ## Embed In A Clap CLI
 
@@ -23,7 +21,7 @@ Use `DaemonCli` when service metadata is supplied by command-line options:
 ```rust
 use anyhow::Result;
 use clap::Parser;
-use daemon_rs::DaemonCli;
+use daemon::DaemonCli;
 
 #[derive(Debug, Parser)]
 struct Cli {
@@ -48,8 +46,12 @@ my-app \
 ```
 
 `config_dir` defaults to `workdir`. Optional `--user` and `--group` are
-available for system services; user-level services run as the current user and
-must not set these fields.
+available for system services. User-level services run as the current user.
+systemd reads an optional `<name>.env` file from `config_dir`. launchd writes
+standard output and error to `out.log` and `err.log` under
+`~/Library/Logs/<name>` for LaunchAgents or `/Library/Logs/<name>` for
+LaunchDaemons running as root. LaunchDaemons with an explicit `--user` use
+launchd’s default standard output and error handling.
 
 ## Embed With Programmatic Metadata
 
@@ -57,7 +59,7 @@ Use `Daemon` and `Command` when metadata is already available in the host
 application:
 
 ```rust
-use daemon_rs::{Command, Daemon};
+use daemon::{Command, Daemon};
 use std::ffi::OsString;
 
 let daemon = Daemon::new(
@@ -73,7 +75,7 @@ daemon.execute(&Command::Install {
 })?;
 ```
 
-The generated model can be inspected before installation:
+The generated systemd model can be inspected before installation:
 
 ```rust
 let unit = daemon.systemd_unit()?;
@@ -91,10 +93,11 @@ println!("{}", unit.render());
 | `restart`   | `r`, `re`                   |
 | `status`    | `info`, `if`                |
 
-The D-Bus session/system bus must be available. The lifecycle integration test
-requires an active user systemd session:
+Use `cargo test` to check CLI parsing and service definitions. The systemd
+lifecycle test requires Linux with an active user systemd session. The launchd
+lifecycle test requires macOS with an active GUI login.
 
 ```text
-cargo test
 cargo test --test systemd systemd_lifecycle -- --ignored
+cargo test --lib launchd_lifecycle -- --ignored
 ```

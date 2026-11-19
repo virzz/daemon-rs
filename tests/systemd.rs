@@ -1,5 +1,6 @@
 use clap::Parser;
 use daemon::{Command, Daemon, DaemonCommand};
+#[cfg(target_os = "linux")]
 use dbus::blocking::Connection;
 use std::ffi::{OsStr, OsString};
 
@@ -102,7 +103,7 @@ fn install_arguments_are_rendered_in_exec_start() {
     );
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 #[test]
 #[ignore = "requires an active systemd --user session; run with: cargo test --test systemd systemd_lifecycle -- --ignored"]
 fn systemd_lifecycle() {
@@ -113,10 +114,12 @@ fn systemd_lifecycle() {
     let daemon = Daemon::new(
         name.as_str(),
         "daemon-rs integration test",
-        std::env::current_exe().expect("current test executable"),
+        "/bin/sleep",
         root.path(),
     );
-    let install = Command::Install { args: Vec::new() };
+    let install = Command::Install {
+        args: vec!["300".into()],
+    };
     daemon.execute(&install).expect("install service");
     let lifecycle = (|| {
         daemon.execute(&Command::Status)?;
