@@ -33,8 +33,10 @@ fn systemd_unit_contains_go_compatible_defaults() {
         "WorkingDirectory=/var/lib/example",
         "User=example",
         "Group=example",
-        "PIDFile=/run/ExampleService.pid",
-        "ExecStartPre=/bin/rm -f /run/ExampleService.pid",
+        "RuntimeDirectory=daemon-rs-%N",
+        "PIDFile=%t/daemon-rs-%N/ExampleService.pid",
+        "ExecStartPre=/bin/rm -f %t/daemon-rs-%N/ExampleService.pid",
+        r#"ExecStartPost=/bin/sh -c 'echo "$$1" > "$$2"' sh ${MAINPID} "%t/daemon-rs-%N/ExampleService.pid""#,
         "Restart=always",
         "RestartSec=0",
         "StartLimitIntervalSec=30",
@@ -47,6 +49,22 @@ fn systemd_unit_contains_go_compatible_defaults() {
             unit.contains(expected),
             "unit missing {expected:?}:\n{unit}"
         );
+    }
+}
+
+#[test]
+fn systemd_unit_inherits_manager_identity_by_default() {
+    let daemon = Daemon::new("example", "Example", "/usr/bin/example", "/tmp");
+    for (user_manager, pid_file, target) in [
+        (true, "%t/example.pid", "default.target"),
+        (false, "/run/example.pid", "multi-user.target"),
+    ] {
+        let unit = daemon.systemd_unit_for(user_manager).expect("valid unit");
+        assert_eq!(unit.service.user, None);
+        assert_eq!(unit.service.group, None);
+        assert_eq!(unit.service.pid_file, pid_file);
+        assert_eq!(unit.install.wanted_by, target);
+        assert!(!unit.render().contains("RuntimeDirectory="));
     }
 }
 

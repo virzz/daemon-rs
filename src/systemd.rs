@@ -11,6 +11,8 @@ use crate::Config;
 #[cfg(target_os = "linux")]
 pub(crate) use manager::execute;
 
+const DELEGATED_RUNTIME_DIRECTORY: &str = "daemon-rs-%N";
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SystemdUnit {
     pub unit: SystemdUnitSection,
@@ -51,18 +53,23 @@ impl SystemdUnit {
     pub fn from_config(config: &Config, args: &[OsString], user_manager: bool) -> Result<Self> {
         config.validate()?;
         let service_name = config.service_name();
-        let pid_dir = if user_manager { "%t" } else { "/run" };
-        let systemctl = if user_manager {
-            "/bin/systemctl --user"
+        let (user, group) = if user_manager {
+            (None, None)
         } else {
-            "/bin/systemctl"
+            (config.user.clone(), config.group.clone())
+        };
+        let pid_file = if user.is_some() || group.is_some() {
+            format!("%t/{DELEGATED_RUNTIME_DIRECTORY}/{service_name}.pid")
+        } else if user_manager {
+            format!("%t/{service_name}.pid")
+        } else {
+            format!("/run/{service_name}.pid")
         };
         let exec_start = std::iter::once(config.program.as_os_str())
             .chain(args.iter().map(OsString::as_os_str))
             .map(systemd_arg)
             .collect::<Vec<_>>()
             .join(" ");
-        let pid_file = format!("{pid_dir}/{service_name}.pid");
         Ok(Self {
             unit: SystemdUnitSection {
                 description: config.description.clone(),
@@ -75,15 +82,15 @@ impl SystemdUnit {
                 pid_file: pid_file.clone(),
                 exec_start_pre: format!("/bin/rm -f {pid_file}"),
                 exec_start_post: format!(
-                    "/bin/bash -c '{systemctl} show -p MainPID --value {service_name} > {pid_file}'"
+                    r#"/bin/sh -c 'echo "$$1" > "$$2"' sh ${{MAINPID}} "{pid_file}""#
                 ),
                 restart: "always".to_owned(),
                 restart_sec: 0,
                 start_limit_interval_sec: 30,
                 start_limit_burst: 10,
                 restart_prevent_exit_status: "SIGKILL".to_owned(),
-                user: (!user_manager).then(|| config.user.clone()).flatten(),
-                group: (!user_manager).then(|| config.group.clone()).flatten(),
+                user,
+                group,
                 environment_file: config.config_dir.join(format!("{service_name}.env")),
             },
             install: SystemdInstallSection {
@@ -110,6 +117,9 @@ impl SystemdUnit {
             "WorkingDirectory={}",
             service.working_directory.display()
         );
+        if service.user.is_some() || service.group.is_some() {
+            let _ = writeln!(unit, "RuntimeDirectory={DELEGATED_RUNTIME_DIRECTORY}");
+        }
         let _ = writeln!(unit, "PIDFile={}", service.pid_file);
         let _ = writeln!(unit, "ExecStartPre={}", service.exec_start_pre);
         let _ = writeln!(unit, "ExecStartPost={}", service.exec_start_post);
@@ -199,10 +209,11 @@ mod manager {
     const JOB_TIMEOUT: Duration = Duration::from_secs(90);
 
     pub(crate) fn execute(config: &Config, command: &Command) -> Result<()> {
-        if !is_root() && (config.user.is_some() || config.group.is_some()) {
-            bail!("--user/--group require system service mode; unset them for systemd --user")
+        let user_manager = !is_root();
+        if user_manager && (config.user.is_some() || config.group.is_some()) {
+            bail!("--user/--group require root privileges");
         }
-        let systemd = Systemd::connect()?;
+        let systemd = Systemd::connect(user_manager)?;
         let label = config.unit_name();
         match command {
             Command::Install { args } => systemd.install(config, args),
@@ -223,8 +234,7 @@ mod manager {
     }
 
     impl Systemd {
-        fn connect() -> Result<Self> {
-            let user = !is_root();
+        fn connect(user: bool) -> Result<Self> {
             let connection = if user {
                 Connection::new_session()
             } else {

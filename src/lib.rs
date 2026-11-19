@@ -308,11 +308,13 @@ mod tests {
     }
 
     #[test]
-    fn user_unit_uses_user_runtime_and_systemctl() {
+    fn user_unit_writes_pid_to_user_runtime() {
         let c = Config::new("demo", "Demo service", "/tmp/demo", "/tmp");
         let unit = SystemdUnit::from_config(&c, &[], true).unwrap().render();
         assert!(unit.contains("PIDFile=%t/demo.pid"));
-        assert!(unit.contains("/bin/systemctl --user show"));
+        assert!(unit.contains(
+            r#"ExecStartPost=/bin/sh -c 'echo "$$1" > "$$2"' sh ${MAINPID} "%t/demo.pid""#
+        ));
         assert!(!unit.contains("User="));
         assert!(!unit.contains("Group="));
     }

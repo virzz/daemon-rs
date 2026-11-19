@@ -45,9 +45,15 @@ my-app \
   install -- --config /etc/my-app/config.toml
 ```
 
-`config_dir` defaults to `workdir`. Optional `--user` and `--group` are
-available for system services. User-level services run as the current user.
-systemd reads an optional `<name>.env` file from `config_dir`. launchd writes
+`config_dir` defaults to `workdir`. On Linux the service runs as the invoking
+user by default. When invoked as root, `--user <account>` selects the account
+for the system service, and `--group <group>` can override its primary group.
+Give that account the access it needs to the executable, working directory,
+and application files. systemd creates a writable runtime directory for the
+PID file when credentials are specified.
+
+systemd reads an optional `<name>.env` file from `config_dir`. On macOS,
+`--user` and `--group` are available for system services. launchd writes
 standard output and error to `out.log` and `err.log` under
 `~/Library/Logs/<name>` for LaunchAgents or `/Library/Logs/<name>` for
 LaunchDaemons running as root. LaunchDaemons with an explicit `--user` use
