@@ -8,7 +8,7 @@ anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 
 [target.'cfg(unix)'.dependencies]
-libc = "0.2"
+rustix = { version = "1", features = ["process"] }
 
 [target.'cfg(any(target_os = "linux", target_os = "macos"))'.dependencies]
 dirs = "6"

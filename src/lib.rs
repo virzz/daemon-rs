@@ -1,5 +1,7 @@
 //! Clap-compatible daemon management via systemd on Linux and launchd on macOS.
 
+#![forbid(unsafe_code)]
+
 use std::ffi::OsString;
 use std::path::PathBuf;
 
@@ -266,8 +268,7 @@ fn is_root() -> bool {
 
 #[cfg(unix)]
 fn effective_uid() -> u32 {
-    // SAFETY: geteuid takes no arguments and has no memory or lifetime requirements.
-    unsafe { libc::geteuid() }
+    rustix::process::geteuid().as_raw()
 }
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]

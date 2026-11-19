@@ -134,7 +134,7 @@ dependencies = [
  "clap",
  "dbus",
  "dirs",
- "libc",
+ "rustix",
  "tempfile",
 ]
 
